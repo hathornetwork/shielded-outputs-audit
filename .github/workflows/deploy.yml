@@ -1,0 +1,57 @@
+name: Deploy to GitHub Pages
+
+# Builds the static SPA on every push to `main` and on manual trigger,
+# then publishes `dist/` to the repo's GitHub Pages site. The audit
+# page is fully static (no backend) so this is the entire deploy
+# pipeline — same artifact will be promoted to S3 + CloudFront once
+# the production deploy lands.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required by `actions/deploy-pages`:
+#   - `pages: write` lets the action publish the built artifact
+#   - `id-token: write` lets it use OIDC against GitHub Pages
+#   - `contents: read` is the default but spelled out for clarity
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Don't queue redundant deploys: a newer commit cancels an in-flight
+# build/deploy. Pages only serves one version at a time anyway.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # `--legacy-peer-deps` works around `vite-plugin-node-polyfills`
+      # capping at vite 7 while we run on vite 8. Same flag the local
+      # dev install uses; tracked for cleanup once the plugin updates.
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
