@@ -1,18 +1,16 @@
 /**
- * Form: network selector + spend xpub + scan xpriv + Audit button.
+ * Form: network label (currently fixed) + spend xpub + scan xpriv +
+ * Audit button.
  *
- * Validates keys synchronously on submit (cheap — `bitcore-lib`'s
+ * Validates keys synchronously on submit — cheap, since `bitcore-lib`'s
  * `HDPublicKey` / `HDPrivateKey` constructors throw on malformed
- * strings). Network presets come from `services/networks`; the
- * "custom" preset expands two extra fields.
+ * strings. The network field is rendered as a static label rather
+ * than a dropdown because only one preset is currently live; the
+ * dropdown returns when there's a real choice to make.
  */
 
 import { useState } from 'react';
-import {
-  customNetwork,
-  NETWORKS,
-  type Network,
-} from '../services/networks';
+import { NETWORKS } from '../services/networks';
 import type { AuditInput } from '../services/audit';
 
 interface Props {
@@ -20,9 +18,14 @@ interface Props {
 }
 
 export function AuditForm({ onSubmit }: Props) {
-  const [networkId, setNetworkId] = useState<string>('shielded-testnet');
-  const [customFullnodeUrl, setCustomFullnodeUrl] = useState('');
-  const [customExplorerUrl, setCustomExplorerUrl] = useState('');
+  // Hard-pinned to the only live network for now. When a second network
+  // ships, restore the previous `useState` + `<select>` pair (see
+  // git history — c.f. the disabled-select rendering that preceded this
+  // static-label form). The custom-network escape hatch is also gone
+  // for the same reason: it's only useful when there's a non-listed
+  // node for a developer to point at, which doesn't exist today.
+  const NETWORK_ID = 'shielded-testnet';
+  const network = NETWORKS.find(n => n.id === NETWORK_ID)!;
   const [spendXpub, setSpendXpub] = useState('');
   const [scanXpriv, setScanXpriv] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -30,21 +33,6 @@ export function AuditForm({ onSubmit }: Props) {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    let network: Network | undefined;
-    if (networkId === 'custom') {
-      if (!customFullnodeUrl.trim() || !customExplorerUrl.trim()) {
-        setError('Custom network requires both fullnode and explorer URLs.');
-        return;
-      }
-      network = customNetwork(customFullnodeUrl.trim(), customExplorerUrl.trim());
-    } else {
-      network = NETWORKS.find(n => n.id === networkId);
-    }
-    if (!network) {
-      setError('Unknown network preset.');
-      return;
-    }
 
     if (!spendXpub.trim() || !scanXpriv.trim()) {
       setError('Both spend xpub and scan xpriv are required.');
@@ -56,46 +44,10 @@ export function AuditForm({ onSubmit }: Props) {
 
   return (
     <form className="audit-form" onSubmit={submit}>
-      <label className="field">
+      <div className="network-row">
         <span className="field-label">Network</span>
-        <select
-          value={networkId}
-          onChange={e => setNetworkId(e.target.value)}
-          className="field-input"
-        >
-          {NETWORKS.map(n => (
-            <option key={n.id} value={n.id}>
-              {n.label}
-            </option>
-          ))}
-          <option value="custom">Custom…</option>
-        </select>
-      </label>
-
-      {networkId === 'custom' && (
-        <>
-          <label className="field">
-            <span className="field-label">Fullnode v1a URL</span>
-            <input
-              className="field-input"
-              type="url"
-              placeholder="https://my-node.example.com/v1a/"
-              value={customFullnodeUrl}
-              onChange={e => setCustomFullnodeUrl(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Explorer URL</span>
-            <input
-              className="field-input"
-              type="url"
-              placeholder="https://my-explorer.example.com/"
-              value={customExplorerUrl}
-              onChange={e => setCustomExplorerUrl(e.target.value)}
-            />
-          </label>
-        </>
-      )}
+        <span className="network-row-value">{network.label}</span>
+      </div>
 
       <label className="field">
         <span className="field-label">

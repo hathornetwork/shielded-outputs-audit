@@ -85,17 +85,16 @@ export default function App() {
 }
 
 function RunningView({ progress }: { progress: AuditProgress }) {
-  // The orchestrator's progress.message already embeds the
-  // "n/total" counter when relevant (see the `txs` phase in
-  // audit.ts), so we render the message as-is. A separate counter
-  // suffix would just duplicate the digits.
+  // The orchestrator's progress.message takes precedence when
+  // present; otherwise we fall back to a phase-specific default. No
+  // separate counter suffix here — the orchestrator embeds counts
+  // into the message itself when relevant.
   const message =
     progress.message ||
     {
       init: 'Initializing…',
       addresses: 'Deriving addresses…',
       history: 'Sweeping address history…',
-      txs: 'Fetching transactions…',
       rewind: 'Rewinding shielded outputs…',
       done: 'Done',
     }[progress.phase];
