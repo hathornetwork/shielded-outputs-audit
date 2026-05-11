@@ -36,6 +36,20 @@ export default function App() {
 
   const reset = () => setState({ kind: 'form' });
 
+  const reload = async () => {
+    if (state.kind !== 'done') return;
+    const input = state.input;
+    setState({ kind: 'running', progress: { phase: 'init' } });
+    try {
+      const result = await runAudit(input, progress =>
+        setState({ kind: 'running', progress })
+      );
+      setState({ kind: 'done', result, input });
+    } catch (e) {
+      setState({ kind: 'error', error: e as Error, input });
+    }
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -58,6 +72,7 @@ export default function App() {
               rows={state.result.rows}
               network={state.input.network}
               onReset={reset}
+              onReload={reload}
             />
           </>
         )}
