@@ -22,8 +22,19 @@ type AuditState =
 export default function App() {
   const [state, setState] = useState<AuditState>({ kind: 'form' });
 
+  // Initial running-view state. WASM init + address derivation run
+  // before the orchestrator's first onProgress fires (combined ~100ms
+  // on a warm cache), so seeding the message with the *next* visible
+  // phase keeps the UI from flashing an "Initializing…" placeholder
+  // that the user can't usefully act on. The orchestrator overrides
+  // it as soon as the address-history sweep starts.
+  const initialProgress: AuditProgress = {
+    phase: 'history',
+    message: 'Loading address history…',
+  };
+
   const onSubmit = async (input: AuditInput) => {
-    setState({ kind: 'running', progress: { phase: 'init' } });
+    setState({ kind: 'running', progress: initialProgress });
     try {
       const result = await runAudit(input, progress =>
         setState({ kind: 'running', progress })
@@ -39,7 +50,7 @@ export default function App() {
   const reload = async () => {
     if (state.kind !== 'done') return;
     const input = state.input;
-    setState({ kind: 'running', progress: { phase: 'init' } });
+    setState({ kind: 'running', progress: initialProgress });
     try {
       const result = await runAudit(input, progress =>
         setState({ kind: 'running', progress })
@@ -92,9 +103,7 @@ function RunningView({ progress }: { progress: AuditProgress }) {
   const message =
     progress.message ||
     {
-      init: 'Initializing…',
-      addresses: 'Deriving addresses…',
-      history: 'Sweeping address history…',
+      history: 'Loading address history…',
       rewind: 'Rewinding shielded outputs…',
       done: 'Done',
     }[progress.phase];

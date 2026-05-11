@@ -99,9 +99,17 @@ export interface AuditResult {
 }
 
 export interface AuditProgress {
-  // No 'txs' phase — `address_history` carries the full tx body, so
-  // there's no per-tx fetch step to surface progress for.
-  phase: 'init' | 'addresses' | 'history' | 'rewind' | 'done';
+  // Phases the orchestrator emits onProgress for:
+  //   - 'history': address-history sweep (and the token-metadata
+  //                fetch sub-step, which reuses the same phase id
+  //                with a swapped message).
+  //   - 'rewind':  the WASM range-proof rewind pass.
+  //   - 'done':    terminal state.
+  // WASM init and address derivation finish in ~100ms combined, fast
+  // enough that surfacing dedicated phases for them only adds
+  // visible flicker — `App.tsx` seeds 'history' as the initial state
+  // and the orchestrator overrides it as soon as the sweep starts.
+  phase: 'history' | 'rewind' | 'done';
   current?: number;
   total?: number;
   message?: string;
@@ -126,8 +134,12 @@ export async function runAudit(
 
   // wasm-pack `--target web` ships an `init()` default export that
   // fetches the .wasm and instantiates it. Idempotent — calling
-  // twice is a no-op.
-  onProgress?.({ phase: 'init', message: 'Loading verifier WASM…' });
+  // twice is a no-op. We deliberately don't surface a separate
+  // "loading verifier" progress message: WASM init takes ~100ms on
+  // a warm cache, address derivation is microseconds of BIP32 math,
+  // and the user-perceived first phase is the address-history sweep
+  // anyway. Skipping both keeps the running view from flashing two
+  // intermediate states before settling.
   await init();
 
   // --- 1. Derive addresses with a sliding gap-limit window ----------
@@ -135,7 +147,6 @@ export async function runAudit(
   // tail of `GAP_LIMIT` addresses; whenever any address inside that
   // tail gets a tx hit, slide forward by `GAP_LIMIT` more. Stop
   // once the tail is fully empty (or we hit the safety cap).
-  onProgress?.({ phase: 'addresses', message: 'Deriving addresses…' });
   const addressToIndex = new Map<string, number>();
   const allAddresses: string[] = [];
   // Address → set of tx_ids it appears in. Used for the gap-limit
@@ -188,7 +199,7 @@ export async function runAudit(
   // same tx may show up under multiple of the wallet's addresses
   // (sender + recipient, change splits, etc.) and we only need it
   // once.
-  onProgress?.({ phase: 'history', message: 'Fetching address history…' });
+  onProgress?.({ phase: 'history', message: 'Loading address history…' });
   const txs: Record<string, FullNodeTx> = {};
   let cursor = 0; // Index of the next address we still need to query.
 
