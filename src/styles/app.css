@@ -108,6 +108,22 @@ body {
   box-shadow: 0 0 0 2px rgba(140, 70, 255, 0.15);
 }
 
+/* Inline label/value pair for the network row. No box, no border —
+ * the network is an informational fact rather than a field to fill
+ * in, so it shouldn't visually compete with the input rows below.
+ * Restore the full `<select>` + `.field-input` styling when a second
+ * network ships and a choice becomes meaningful again. */
+.network-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.network-row-value {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
 .field-input-textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85rem;
@@ -308,6 +324,14 @@ body {
   color: var(--text-muted);
 }
 
+/* Holds the Reload + New audit buttons. Single horizontal group on
+ * the right side of the header — `gap` keeps them spaced without each
+ * button needing a `margin-left` rule. */
+.tx-list-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .empty-state {
   background: var(--warning-bg);
   border: 1px solid var(--border);
@@ -358,6 +382,56 @@ body {
   background: var(--bg);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+/* ── Pagination ──────────────────────────────────────────────────── */
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.pagination-button {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.pagination-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.pagination-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pagination-button-active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.pagination-button-active:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.pagination-gap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  color: var(--text-muted);
 }
 
 .col-balance {
