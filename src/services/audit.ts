@@ -218,6 +218,17 @@ export async function runAudit(
           pageCursor
         );
         for (const e of entries) {
+          // Voided txs (consensus-rejected) still appear in
+          // `address_history` because they once touched the
+          // address. Wallet-lib filters them at `processSingleTx`
+          // (`utils/storage.ts:888`) and skips all downstream work;
+          // the audit must do the same — otherwise voided outputs
+          // would inflate balances and surface tokens that don't
+          // really exist. Gap-limit hit registration still fires so
+          // address derivation matches wallet behavior for chains
+          // that contain voided activity.
+          for (const addr of batch) addressHits.get(addr)!.add(e.tx_id);
+          if (e.is_voided) continue;
           // First time we see this tx — split its shielded entries
           // out of the mixed `outputs[]` / `inputs[]` arrays so the
           // downstream rewind + balance logic can treat shielded
@@ -227,12 +238,6 @@ export async function runAudit(
           if (!txs[e.tx_id]) {
             txs[e.tx_id] = splitShieldedFromHistoryTx(e);
           }
-          // We don't know which address-batch member this tx
-          // touched without re-walking outputs/inputs; record the
-          // tx-id under every queried address so the gap-limit
-          // check just asks "did any tail address get any hit?".
-          // Slightly overcounts but never misses.
-          for (const addr of batch) addressHits.get(addr)!.add(e.tx_id);
         }
         pageCursor = nextCursor;
       } while (pageCursor !== null);
@@ -388,9 +393,17 @@ export async function runAudit(
   // derived-address map. Used by the per-row balance builder below
   // to compute transparent input activity (input references the
   // parent's output by tx_id + index, which we then look up here).
+  // `isAuthority` flagged separately from value so the dropdown
+  // seeder downstream still picks up token uids from mint/melt
+  // outputs the wallet owns, but the balance builder can skip them —
+  // an authority output's `value` carries the authority bit pattern
+  // (1=mint, 2=melt), not a token amount, so summing it into the
+  // public balance would inflate every owned-authority token's total
+  // by 1 or 2 (e.g. owning mint+melt on DEMO would land at 10,003
+  // instead of 10,000).
   const transparentOwnedOutputs = new Map<
     string,
-    { value: bigint; tokenUid: string }
+    { value: bigint; tokenUid: string; isAuthority: boolean }
   >();
   for (const [txId, tx] of Object.entries(txs)) {
     const outs = tx.outputs ?? [];
@@ -401,6 +414,7 @@ export async function runAudit(
       transparentOwnedOutputs.set(`${txId}:${i}`, {
         value: BigInt(out.value),
         tokenUid: resolveTransparentTokenUid(out, tx),
+        isAuthority: ((out.token_data ?? 0) & 0x80) !== 0,
       });
     }
   }
@@ -448,6 +462,29 @@ export async function runAudit(
     symbol: 'HTR',
     name: 'Hathor',
   });
+
+  // Two tx shapes carry tokens that never appear in `tx.tokens[]`:
+  //   - Token-creation txs (version=2) — the new token's uid IS the
+  //     tx_id and `tokens[]` is empty. The output resolves correctly
+  //     via `out.token` per-row, but the dropdown index misses it.
+  //   - FullShielded outputs — the uid lives inside `asset_commitment`
+  //     and only emerges from `rewindFullShieldedOutput`.
+  // Seed `tokenInfoByUid` from the already-resolved owned-output maps
+  // so every token the wallet has activity in shows in the selector.
+  // Placeholder symbol is the 8-char prefix; Stage 2 below replaces it
+  // with the real name via `/thin_wallet/token?id=…`.
+  const seedFromOwnedToken = (uid: string | undefined) => {
+    if (!uid) return;
+    const lower = uid.toLowerCase();
+    if (tokenInfoByUid.has(lower)) return;
+    tokenInfoByUid.set(lower, {
+      tokenUid: lower,
+      symbol: `${lower.slice(0, 8)}…`,
+      name: lower,
+    });
+  };
+  for (const opening of ownedOpenings.values()) seedFromOwnedToken(opening.token);
+  for (const entry of transparentOwnedOutputs.values()) seedFromOwnedToken(entry.tokenUid);
 
   // Stage 2: fetch real name/symbol for any UID still wearing the
   // hash-prefix placeholder. One `/thin_wallet/token?id=…` round-trip
@@ -523,11 +560,15 @@ export async function runAudit(
     for (const i of inputsForTx) bumpToken(i.token, 'priv', -i.value);
 
     // Transparent owned outputs in this tx → received.
+    // Authority outputs flag activity (so the row still surfaces in
+    // the wallet's history) but don't bump balances — their `value`
+    // is the authority bit pattern, not a token amount.
     let hasTransparentActivity = false;
     for (let i = 0; i < (tx.outputs ?? []).length; i += 1) {
       const owned = transparentOwnedOutputs.get(`${txId}:${i}`);
       if (!owned) continue;
       hasTransparentActivity = true;
+      if (owned.isAuthority) continue;
       bumpToken(owned.tokenUid, 'pub', owned.value);
     }
     // Transparent inputs whose parent we own → spent.
@@ -537,6 +578,7 @@ export async function runAudit(
       const owned = transparentOwnedOutputs.get(`${input.tx_id}:${input.index}`);
       if (!owned) continue;
       hasTransparentActivity = true;
+      if (owned.isAuthority) continue;
       bumpToken(owned.tokenUid, 'pub', -owned.value);
     }
 
