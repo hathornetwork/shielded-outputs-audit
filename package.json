@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@hathor/ct-crypto-wasm": "0.2.0",
-    "@hathor/wallet-lib": "0.0.11-shielded",
+    "@hathor/wallet-lib": "0.0.12-shielded",
     "axios": "1.8.2",
     "bitcore-lib": "8.25.10",
     "react": "19.2.5",
