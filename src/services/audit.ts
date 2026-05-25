@@ -21,7 +21,12 @@
  * `utils/transaction.ts:normalizeShieldedOutputs` (case (a)).
  */
 
-import init, * as wasm from '@hathor/ct-crypto-wasm';
+// Use the abstract-class provider from the @hathor/ct-crypto-wasm package
+// (verifier-only surface — exactly what the audit needs). The provider
+// handles WASM init, Uint8Array↔Buffer marshaling, and hex-encodes
+// tokenUid at the rewind boundary, so this file no longer touches
+// raw wasm-bindgen exports.
+import { createBrowserShieldedCryptoProvider } from '@hathor/ct-crypto-wasm/provider';
 
 import {
   checkAsymmetricDerivationPairs,
@@ -38,12 +43,12 @@ import {
   type RawTx,
 } from './explorer';
 import type { Network } from './networks';
-import {
-  bytesToHex,
-  encodeUnblindingPayload,
-  hexToBytes,
-  type OpeningEntry,
-} from '../utils/bigintJson';
+import { bytesToHex, hexToBytes, type OpeningEntry } from '../utils/bigintJson';
+// Canonical encoder lives in wallet-lib (single source of truth across
+// mobile, headless, and this audit page).
+import { shielded as walletLibShielded } from '@hathor/wallet-lib';
+
+const encodeUnblindingPayload = walletLibShielded.encodeShieldedUnblindingPayload;
 
 /** BIP44-style sliding gap-limit. Same default the standard wallet uses. */
 const GAP_LIMIT = 20;
@@ -132,15 +137,15 @@ export async function runAudit(
 ): Promise<AuditResult> {
   validateAuditKeys(input.spendXpub, input.scanXpriv);
 
-  // wasm-pack `--target web` ships an `init()` default export that
-  // fetches the .wasm and instantiates it. Idempotent — calling
-  // twice is a no-op. We deliberately don't surface a separate
-  // "loading verifier" progress message: WASM init takes ~100ms on
-  // a warm cache, address derivation is microseconds of BIP32 math,
-  // and the user-perceived first phase is the address-history sweep
-  // anyway. Skipping both keeps the running view from flashing two
-  // intermediate states before settling.
-  await init();
+  // The provider's factory awaits the WASM init() before returning,
+  // so by the time we have `wasmProvider` the binding is ready to use.
+  // Idempotent — calling twice instantiates fresh providers cheaply
+  // (each is a thin class around the same WASM module). We deliberately
+  // don't surface a separate "loading verifier" progress message: init
+  // takes ~100ms on a warm cache, address derivation is microseconds
+  // of BIP32 math, and the user-perceived first phase is the address-
+  // history sweep anyway.
+  const wasmProvider = await createBrowserShieldedCryptoProvider();
 
   // --- 1. Derive addresses with a sliding gap-limit window ----------
   // Same algorithm the standard wallet uses on first sync: keep a
@@ -303,7 +308,10 @@ export async function runAudit(
         // without exposing the key.
         let sharedSecretHex = '<not computed>';
         try {
-          const ss = wasm.deriveEcdhSharedSecret(scanPrivkey, ephPk);
+          const ss = await wasmProvider.deriveEcdhSharedSecret(
+            Buffer.from(scanPrivkey),
+            Buffer.from(ephPk)
+          );
           sharedSecretHex = bytesToHex(ss);
         } catch (e) {
           sharedSecretHex = `<threw: ${(e as Error).message ?? e}>`;
@@ -326,17 +334,19 @@ export async function runAudit(
       try {
         if (isFullShielded) {
           const assetCommitment = hexToBytes(slot.asset_commitment!);
-          const result = wasm.rewindFullShieldedOutput(
-            scanPrivkey,
-            ephPk,
-            commitment,
-            rangeProof,
-            assetCommitment
+          const result = await wasmProvider.rewindFullShieldedOutput(
+            Buffer.from(scanPrivkey),
+            Buffer.from(ephPk),
+            Buffer.from(commitment),
+            Buffer.from(rangeProof),
+            Buffer.from(assetCommitment)
           );
           ownedOpenings.set(`${txId}:${onChainIndex}`, {
             index: onChainIndex,
-            value: BigInt(result.value),
-            token: bytesToHex(result.tokenUid),
+            value: result.value,
+            // result.tokenUid is already hex — the provider hex-encodes
+            // at the rewind boundary, so we don't bytesToHex it again.
+            token: result.tokenUid,
             vbf: bytesToHex(result.blindingFactor),
             abf: bytesToHex(result.assetBlindingFactor),
           });
@@ -345,16 +355,16 @@ export async function runAudit(
           // exactly like transparent outputs. Resolve via the tx's
           // tokens[] registry.
           const tokenUidHex = resolveAmountShieldedTokenUid(slot.token_data ?? 0, tx);
-          const result = wasm.rewindAmountShieldedOutput(
-            scanPrivkey,
-            ephPk,
-            commitment,
-            rangeProof,
-            hexToBytes(tokenUidHex)
+          const result = await wasmProvider.rewindAmountShieldedOutput(
+            Buffer.from(scanPrivkey),
+            Buffer.from(ephPk),
+            Buffer.from(commitment),
+            Buffer.from(rangeProof),
+            Buffer.from(hexToBytes(tokenUidHex))
           );
           ownedOpenings.set(`${txId}:${onChainIndex}`, {
             index: onChainIndex,
-            value: BigInt(result.value),
+            value: result.value,
             token: tokenUidHex,
             vbf: bytesToHex(result.blindingFactor),
           });
