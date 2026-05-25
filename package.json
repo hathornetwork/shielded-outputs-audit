@@ -15,7 +15,7 @@
     "@hathor/ct-crypto-provider": "0.0.1-shielded",
     "@hathor/ct-crypto-wasm": "0.0.1-shielded",
     "@hathor/wallet-lib": "0.0.16-shielded",
-    "axios": "1.8.2",
+    "axios": "1.15.2",
     "bitcore-lib": "8.25.10",
     "react": "19.2.5",
     "react-dom": "19.2.5"
